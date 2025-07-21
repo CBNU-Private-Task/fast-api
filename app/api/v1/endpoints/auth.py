@@ -18,7 +18,6 @@ router = APIRouter()
 @router.get("/users", response_model=ApiResponse[List[UserOutput]], summary="Get All Users")
 def get_users(db: Session = Depends(get_db)):
     users = db.query(User).all()
-    print("Users is :",users)
     return {"data": users}
 
 # Create User

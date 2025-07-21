@@ -17,8 +17,7 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# Register custom exception handlers
 app.add_exception_handler(HTTPException, http_exception_handler)
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
 
-app.include_router(api_router, prefix="/api/v1") 
+app.include_router(api_router, prefix="/api/v1")

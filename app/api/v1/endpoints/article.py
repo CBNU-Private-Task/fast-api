@@ -9,6 +9,7 @@ from app.db.database import get_db
 from app.model.article import Article
 from app.core.Oauth import get_current_user
 from app.model.user import User
+from app.core.websocket_manager import manager
 
 router = APIRouter()
 
@@ -20,8 +21,17 @@ router = APIRouter()
     status_code=status.HTTP_200_OK,
     summary="Get all articles",
 )
-def get_articles(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def get_articles(
+    db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+):
     articles = db.query(Article).filter(Article.owner_id == current_user.id).all()
+    # Serialize articles into JSON-compatible dictionaries
+    response_data = [
+        ArticleResponse.model_validate(article).model_dump(mode="json")
+        for article in articles
+    ]
+    # Send the articles only to the user who requested them
+    await manager.send_to_user(current_user.id, {"articles": response_data})
     return {"data": articles}
 
 
@@ -32,8 +42,16 @@ def get_articles(db: Session = Depends(get_db), current_user: User = Depends(get
     status_code=status.HTTP_200_OK,
     summary="Get article by ID",
 )
-def get_article_by_id(id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    article_id = db.query(Article).filter(Article.id == id, Article.owner_id == current_user.id).first()
+def get_article_by_id(
+    id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    article_id = (
+        db.query(Article)
+        .filter(Article.id == id, Article.owner_id == current_user.id)
+        .first()
+    )
 
     if article_id is None:
         raise HTTPException(
@@ -42,6 +60,7 @@ def get_article_by_id(id: int, db: Session = Depends(get_db), current_user: User
         )
     return {"data": article_id}
 
+
 # Create new Article
 @router.post(
     "/articles",
@@ -49,7 +68,11 @@ def get_article_by_id(id: int, db: Session = Depends(get_db), current_user: User
     status_code=status.HTTP_201_CREATED,
     summary="Create a new article",
 )
-def create_article(article: ArticleCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def create_article(
+    article: ArticleCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     new_article = Article(**article.model_dump(), owner_id=current_user.id)
     db.add(new_article)
     db.commit()
@@ -57,37 +80,58 @@ def create_article(article: ArticleCreate, db: Session = Depends(get_db), curren
 
     return {"data": new_article, "message": "Article created successfully"}
 
+
 # Delete new Article
 @router.delete(
-     "/article/{id}",
-     status_code=status.HTTP_200_OK,
-     summary="Delete Article",
-     response_model=ApiResponse[None]
+    "/article/{id}",
+    status_code=status.HTTP_200_OK,
+    summary="Delete Article",
+    response_model=ApiResponse[None],
 )
-def delete_article(id:int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    deleted_article = db.query(Article).filter(Article.id == id, Article.owner_id == current_user.id)
-    
+def delete_article(
+    id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    deleted_article = db.query(Article).filter(
+        Article.id == id, Article.owner_id == current_user.id
+    )
+
     if deleted_article.first() is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
-                            detail=f"The id: {id} you requested for does not exist")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"The id: {id} you requested for does not exist",
+        )
     deleted_article.delete(synchronize_session=False)
     db.commit()
-    
+
     return {"message": f"Article with id {id} has been deleted!"}
+
 
 # Update Article
 @router.put(
-     "/article/{id}",
-     response_model=ApiResponse[ArticleResponse],
-     status_code=status.HTTP_200_OK,
-     summary="Update Article"
+    "/article/{id}",
+    response_model=ApiResponse[ArticleResponse],
+    status_code=status.HTTP_200_OK,
+    summary="Update Article",
 )
-def update_article(id: int, article_update: ArticleUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    article = db.query(Article).filter(Article.id == id, Article.owner_id == current_user.id).first()
+def update_article(
+    id: int,
+    article_update: ArticleUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    article = (
+        db.query(Article)
+        .filter(Article.id == id, Article.owner_id == current_user.id)
+        .first()
+    )
 
     if article is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"The id:{id} does not exist")
-    
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"The id:{id} does not exist"
+        )
+
     update_data = article_update.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(article, key, value)
